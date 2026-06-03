@@ -1686,10 +1686,9 @@ def find_customer(phone: str, email: str) -> dict | None:
     print(f"\n[CUSTOMER SEARCH] phone={phone!r}  email={email!r}")
     parts = []
     if phone:
-        parts.append(f"{{Contact Number}}='{phone}'")
-        stripped = phone.lstrip("+")
-        if stripped != phone:
-            parts.append(f"{{Contact Number}}='{stripped}'")
+        stripped = ''.join(c for c in phone if c.isdigit())
+        if stripped:
+            parts.append(f"{{Whatsapp number}}='{stripped}'")
     if email:
         parts.append(f"LOWER({{Mail id}})='{email.lower()}'")
 
@@ -1715,7 +1714,7 @@ def create_customer(name: str, phone: str, email: str) -> dict:
     print(f"\n[CUSTOMER CREATE] name={name!r}  phone={phone!r}  email={email!r}")
     fields: dict = {}
     if name:  fields["Customer Name"]  = name
-    if phone: fields["Contact Number"] = phone
+    if phone: fields["Whatsapp number"] = phone
     if email: fields["Mail id"]        = email
     record = at_create(TABLE_CUSTOMERS, fields)
     print(f"[CUSTOMER CREATE] New customer ID: {record.get('id')}")
@@ -1945,7 +1944,10 @@ def run_sync_in_background(max_limit, since_date):
                 cust  = checkout.get("customer") or {}
                 phone = (cust.get("phone") or checkout.get("phone") or "").strip()
                 email = (cust.get("email") or checkout.get("email") or "").strip().lower()
-                existing_customer = find_customer(phone, email) if (phone or email) else None
+                try:
+                    existing_customer = find_customer(phone, email) if (phone or email) else None
+                except Exception:
+                    existing_customer = None
                 if existing_customer and lead_exists_for_customer(existing_customer["id"]):
                     print(f"[SYNC] Lead already exists for customer {existing_customer['id']} — skipping")
                     stats["duplicate_lead"] += 1
