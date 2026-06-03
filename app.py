@@ -14,6 +14,8 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from requests_aws4auth import AWS4Auth
+import sys
+sys.stdout.reconfigure(line_buffering=True)
 
 load_dotenv()
 requests.adapters.DEFAULT_RETRIES = 3
