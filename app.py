@@ -1572,49 +1572,66 @@ def sync_trendyol_orders_job():
 # ── Trendyol Ship By backfill (Section 3) ────────────────────────────────────
 
 def backfill_trendyol_ship_by_job():
-    print("🔄 Starting Trendyol Ship By backfill...", flush=True)
+    print("🔄 Starting Trendyol Ship By backfill (all months)...", flush=True)
     try:
         updated = 0
         skipped = 0
-        page = 0
 
-        while True:
-            r = requests.get(
-                f"{TRENDYOL_BASE_URL}/integration/order/sellers/{TRENDYOL_SELLER_ID}/orders",
-                headers=TRENDYOL_HEADERS,
-                params={"page": page, "size": 50},
-                timeout=REQUEST_TIMEOUT
-            )
-            r.raise_for_status()
-            data        = r.json()
-            orders      = data.get("content", [])
-            total_pages = data.get("totalPages", 1)
-            print(f"📦 Page {page+1}/{total_pages} — {len(orders)} orders", flush=True)
+        # Loop month by month from Jan 2026 to today
+        from datetime import date
+        start_month = date(2026, 1, 1)
+        today       = datetime.utcnow().date()
 
-            for o in orders:
-                order_id = str(o["id"])
-                est_ts   = o.get("estimatedDeliveryStartDate")
-                if not est_ts:
-                    skipped += 1
-                    continue
-                try:
-                    ship_by = datetime.utcfromtimestamp(est_ts / 1000).strftime("%Y-%m-%d")
-                except Exception:
-                    skipped += 1
-                    continue
+        current = start_month
+        while current <= today:
+            # Build start/end timestamps for the month
+            month_start = int(datetime(current.year, current.month, 1).timestamp() * 1000)
+            if current.month == 12:
+                next_month = date(current.year + 1, 1, 1)
+            else:
+                next_month = date(current.year, current.month + 1, 1)
+            month_end = int(datetime(next_month.year, next_month.month, 1).timestamp() * 1000) - 1
 
-                records = ty_airtable_search(ORDERS_TABLE_ID, f"{{Order ID}}='{order_id}'")
-                if records:
-                    ty_airtable_update(ORDERS_TABLE_ID, records[0]["id"], {"Ship By": ship_by})
-                    print(f"✅ {order_id} → Ship By: {ship_by}", flush=True)
-                    updated += 1
-                else:
-                    print(f"⚠️ Not found in Airtable: {order_id}", flush=True)
-                    skipped += 1
+            print(f"📅 Fetching {current.strftime('%Y-%m')}...", flush=True)
+            page = 0
+            while True:
+                r = requests.get(
+                    f"{TRENDYOL_BASE_URL}/integration/order/sellers/{TRENDYOL_SELLER_ID}/orders",
+                    headers=TRENDYOL_HEADERS,
+                    params={"page": page, "size": 50, "startDate": month_start, "endDate": month_end},
+                    timeout=REQUEST_TIMEOUT
+                )
+                r.raise_for_status()
+                data        = r.json()
+                orders      = data.get("content", [])
+                total_pages = data.get("totalPages", 1)
+                print(f"  Page {page+1}/{total_pages} — {len(orders)} orders", flush=True)
 
-            page += 1
-            if page >= total_pages:
-                break
+                for o in orders:
+                    order_id = str(o["id"])
+                    est_ts   = o.get("estimatedDeliveryStartDate")
+                    if not est_ts:
+                        skipped += 1
+                        continue
+                    try:
+                        ship_by = datetime.utcfromtimestamp(est_ts / 1000).strftime("%Y-%m-%d")
+                    except Exception:
+                        skipped += 1
+                        continue
+
+                    records = ty_airtable_search(ORDERS_TABLE_ID, f"{{Order ID}}='{order_id}'")
+                    if records:
+                        ty_airtable_update(ORDERS_TABLE_ID, records[0]["id"], {"Ship By": ship_by})
+                        print(f"  ✅ {order_id} → Ship By: {ship_by}", flush=True)
+                        updated += 1
+                    else:
+                        skipped += 1
+
+                page += 1
+                if page >= total_pages:
+                    break
+
+            current = next_month
 
         print(f"🎉 Trendyol backfill complete: {updated} updated, {skipped} skipped", flush=True)
 
